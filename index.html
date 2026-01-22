@@ -39,7 +39,7 @@
     <div class="chart-box"><canvas id="aspectChart"></canvas></div>
     <div class="chart-box"><canvas id="hourChart"></canvas></div>
 
-    <h3 class="section-title">Risk & Survival Factors</h3>
+    <h3 class="section-title">Risk & Survival Factors (Filtered Data)</h3>
     <div class="chart-box"><canvas id="slopeChart"></canvas></div>
     <div class="chart-box"><canvas id="dangerMortalityChart"></canvas></div>
     <div class="chart-box"><canvas id="lvsOutcomeChart"></canvas></div>
@@ -87,15 +87,27 @@ async function startScrape() {
         const injured = parseInt(inv.injured) || 0;
         const uninjured = parseInt(inv.uninjured) || 0;
         const swept = parseInt(inv.sweeped) || 0;
-        const involvedCount = Math.max(swept, (dead + injured + uninjured));
+
+        // Unknown status calculation
+        const knownOutcomes = dead + injured + uninjured;
+        const unknownStatus = Math.max(0, swept - knownOutcomes);
+        const involvedCount = Math.max(swept, knownOutcomes);
 
         const incidentDate = new Date(inc.date);
+
+        // STRIKT SLOPE PARSING: Verwijder tekst en check op validiteit
+        const rawSlope = inc.location?.slope_angle;
+        let slopeVal = null;
+        if (rawSlope) {
+            const parsed = parseFloat(rawSlope.toString().replace(/[^\d.-]/g, ''));
+            if (!isNaN(parsed) && parsed > 0) slopeVal = parsed;
+        }
 
         finalData.push({
           date: incidentDate,
           hour: incidentDate.getHours(),
-          dead, injured, uninjured, involvedCount,
-          slope: parseFloat(inc.location?.slope_angle) || null,
+          dead, injured, uninjured, unknownStatus, involvedCount,
+          slope: slopeVal,
           aspect: inc.location?.aspect?.text || null,
           dangerLevel: parseInt(dgr.rating?.level) || null,
           lvs: inv.equipment?.lvs?.text?.toLowerCase() || "unknown",
@@ -125,7 +137,6 @@ function renderCharts(data) {
   renderGearMatrix(data);
 }
 
-// --- Restored & Corrected Timeline ---
 function renderTimeline(data) {
   const ctx = document.getElementById('timelineChart').getContext('2d');
   if (charts.time) charts.time.destroy();
@@ -136,31 +147,39 @@ function renderTimeline(data) {
         {
           type: 'scatter',
           label: 'Incident (No Casualties)',
-          data: data.filter(d => d.dead === 0 && d.injured === 0).map(d => ({ x: d.date, y: 0 })),
+          data: data.filter(d => d.dead === 0 && d.injured === 0 && d.unknownStatus === 0).map(d => ({ x: d.date, y: 0 })),
           backgroundColor: 'rgba(200, 200, 200, 0.5)',
           pointRadius: 4
         },
         {
-        type: 'bar',
-        label: 'Dead',
-        data: data.filter(d => d.dead > 0).map(d => ({ x: d.date, y: d.dead })),
-        backgroundColor: '#e63946',
-        stack: 'victims',
-        barThickness: 8, // <--- Add this to force a minimum width in pixels
+          type: 'bar',
+          label: 'Dead',
+          data: data.filter(d => d.dead > 0).map(d => ({ x: d.date, y: d.dead })),
+          backgroundColor: '#000',
+          stack: 'victims',
+          barThickness: 8,
         },
         {
-        type: 'bar',
-        label: 'Injured',
-        data: data.filter(d => d.injured > 0).map(d => ({ x: d.date, y: d.injured })),
-        backgroundColor: '#457b9d',
-        stack: 'victims',
-        barThickness: 8, // <--- Add this as well
+          type: 'bar',
+          label: 'Injured',
+          data: data.filter(d => d.injured > 0).map(d => ({ x: d.date, y: d.injured })),
+          backgroundColor: '#e63946',
+          stack: 'victims',
+          barThickness: 8,
+        },
+        {
+          type: 'bar',
+          label: 'Status Unknown',
+          data: data.filter(d => d.unknownStatus > 0).map(d => ({ x: d.date, y: d.unknownStatus })),
+          backgroundColor: '#bdc3c7',
+          stack: 'victims',
+          barThickness: 8,
         }
       ]
     },
     options: {
       responsive: true,
-      plugins: { title: { display: true, text: 'Casualties & Incidents Timeline' } },
+      plugins: { title: { display: true, text: 'Casualties Timeline (Daily)' } },
       scales: {
         x: { type: 'time', time: { unit: 'day' } },
         y: { beginAtZero: true, stacked: true, ticks: { stepSize: 1 } }
@@ -169,14 +188,11 @@ function renderTimeline(data) {
   });
 }
 
-// --- Time of Day Distribution (Clock) ---
 function renderHourClock(data) {
   const ctx = document.getElementById('hourChart').getContext('2d');
   if (charts.hour) charts.hour.destroy();
-
   const hours = Array.from({length: 24}, (_, i) => i);
   const hourCounts = hours.map(h => data.filter(d => d.hour === h).length);
-
   charts.hour = new Chart(ctx, {
     type: 'radar',
     data: {
@@ -190,7 +206,7 @@ function renderHourClock(data) {
       }]
     },
     options: {
-      plugins: { title: { display: true, text: 'Time of Day Distribution (24h)' } },
+      plugins: { title: { display: true, text: 'Time of Day (24h)' } },
       scales: { r: { beginAtZero: true, ticks: { display: false } } }
     }
   });
@@ -210,18 +226,23 @@ function renderAspect(data) {
 function renderSlope(data) {
   const ctx = document.getElementById('slopeChart').getContext('2d');
   if (charts.slope) charts.slope.destroy();
+
+  // FILTER: Alleen incidenten met een bekende, valide hellingshoek
+  const validData = data.filter(d => d.slope !== null);
+
   const labels = ['<30°', '30-35°', '35-40°', '40-45°', '45°+'];
   const counts = [
-    data.filter(d => d.slope < 30).length,
-    data.filter(d => d.slope >= 30 && d.slope < 35).length,
-    data.filter(d => d.slope >= 35 && d.slope < 40).length,
-    data.filter(d => d.slope >= 40 && d.slope < 45).length,
-    data.filter(d => d.slope >= 45).length
+    validData.filter(d => d.slope < 30).length,
+    validData.filter(d => d.slope >= 30 && d.slope < 35).length,
+    validData.filter(d => d.slope >= 35 && d.slope < 40).length,
+    validData.filter(d => d.slope >= 40 && d.slope < 45).length,
+    validData.filter(d => d.slope >= 45).length
   ];
+
   charts.slope = new Chart(ctx, {
     type: 'bar',
     data: { labels, datasets: [{ label: 'Incidents', data: counts, backgroundColor: '#1d3557' }] },
-    options: { plugins: { title: { display: true, text: 'Slope Steepness' } } }
+    options: { plugins: { title: { display: true, text: 'Slope Steepness (Known Values Only)' } } }
   });
 }
 
@@ -254,10 +275,11 @@ function renderLvsOutcome(data) {
       datasets: [
         { label: 'Dead', backgroundColor: '#000000', data: groups.map(g => data.filter(d => d.lvs === g).reduce((s, d) => s + d.dead, 0)) },
         { label: 'Injured', backgroundColor: '#e63946', data: groups.map(g => data.filter(d => d.lvs === g).reduce((s, d) => s + d.injured, 0)) },
-        { label: 'Uninjured', backgroundColor: '#a8dadc', data: groups.map(g => data.filter(d => d.lvs === g).reduce((s, d) => s + d.uninjured, 0)) }
+        { label: 'Uninjured', backgroundColor: '#a8dadc', data: groups.map(g => data.filter(d => d.lvs === g).reduce((s, d) => s + d.uninjured, 0)) },
+        { label: 'Unknown', backgroundColor: '#bdc3c7', data: groups.map(g => data.filter(d => d.lvs === g).reduce((s, d) => s + d.unknownStatus, 0)) }
       ]
     },
-    options: { indexAxis: 'y', scales: { x: { stacked: true }, y: { stacked: true } }, plugins: { title: { display: true, text: 'Outcome by LVS' } } }
+    options: { indexAxis: 'y', scales: { x: { stacked: true }, y: { stacked: true } }, plugins: { title: { display: true, text: 'Outcome Breakdown (Stacked)' } } }
   });
 }
 
@@ -278,7 +300,7 @@ function renderGearMatrix(data) {
   charts.risk = new Chart(ctx, {
     type: 'bar',
     data: { labels: combos.map(c => c.label), datasets: [{ label: 'Fatality Rate %', data: rates, backgroundColor: '#1d3557' }] },
-    options: { plugins: { title: { display: true, text: 'Survival Risk Matrix' } } }
+    options: { plugins: { title: { display: true, text: 'Survival Risk Matrix (% Mortality)' } } }
   });
 }
 
