@@ -22,7 +22,7 @@
 <body>
 
 <div class="container">
-  <h2>Avalanche Incident Analysis (Tyrol)</h2>
+  <h2>Avalanche Incident Dashboard (Tirol)</h2>
   
   <div class="controls">
     <div><label>Start:</label><br><input type="date" id="startDate" value="2024-11-01" /></div>
@@ -141,48 +141,61 @@ function renderTimeline(data) {
   const ctx = document.getElementById('timelineChart').getContext('2d');
   if (charts.time) charts.time.destroy();
 
+  // We mappen de data naar een "fictief" jaar (2024) voor de X-as
+  // Maar we bewaren de echte datum voor de tooltip
+  const seasonalData = data.map(d => {
+    const virtualDate = new Date(d.date);
+    // Als de maand okt-dec is, zetten we het in 'jaar 1', jan-aug in 'jaar 2'
+    // Zo behouden we de logische wintervolgorde
+    const yearOffset = virtualDate.getMonth() >= 9 ? 2024 : 2025;
+    virtualDate.setFullYear(yearOffset);
+    
+    return {
+      ...d,
+      x: virtualDate,
+      realDate: d.date.toLocaleDateString('nl-NL')
+    };
+  });
+
   charts.time = new Chart(ctx, {
+    type: 'bar',
     data: {
       datasets: [
         {
-          type: 'scatter',
-          label: 'Incident (No Casualties)',
-          data: data.filter(d => d.dead === 0 && d.injured === 0 && d.unknownStatus === 0).map(d => ({ x: d.date, y: 0 })),
-          backgroundColor: 'rgba(200, 200, 200, 0.5)',
-          pointRadius: 4
-        },
-        {
-          type: 'bar',
           label: 'Dead',
-          data: data.filter(d => d.dead > 0).map(d => ({ x: d.date, y: d.dead })),
+          data: seasonalData.filter(d => d.dead > 0).map(d => ({ x: d.x, y: d.dead, realDate: d.realDate })),
           backgroundColor: '#000',
-          stack: 'victims',
-          barThickness: 8,
+          stack: 'v', barThickness: 6
         },
         {
-          type: 'bar',
           label: 'Injured',
-          data: data.filter(d => d.injured > 0).map(d => ({ x: d.date, y: d.injured })),
+          data: seasonalData.filter(d => d.injured > 0).map(d => ({ x: d.x, y: d.injured, realDate: d.realDate })),
           backgroundColor: '#e63946',
-          stack: 'victims',
-          barThickness: 8,
-        },
-        {
-          type: 'bar',
-          label: 'Status Unknown',
-          data: data.filter(d => d.unknownStatus > 0).map(d => ({ x: d.date, y: d.unknownStatus })),
-          backgroundColor: '#bdc3c7',
-          stack: 'victims',
-          barThickness: 8,
+          stack: 'v', barThickness: 6
         }
       ]
     },
     options: {
       responsive: true,
-      plugins: { title: { display: true, text: 'Casualties Timeline (Daily)' } },
+      plugins: {
+        title: { display: true, text: 'Season overview (all years overlaid)' },
+        tooltip: {
+          callbacks: {
+            title: (items) => "Date: " + items[0].raw.realDate,
+            label: (item) => `${item.dataset.label}: ${item.raw.y}`
+          }
+        }
+      },
       scales: {
-        x: { type: 'time', time: { unit: 'day' } },
-        y: { beginAtZero: true, stacked: true, ticks: { stepSize: 1 } }
+        x: { 
+          type: 'time', 
+          time: { 
+            unit: 'month',
+            displayFormats: { month: 'MMM' }
+          },
+          title: { display: true, text: 'Season' }
+        },
+        y: { stacked: true, beginAtZero: true }
       }
     }
   });
