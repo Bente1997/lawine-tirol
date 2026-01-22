@@ -141,18 +141,20 @@ function renderTimeline(data) {
           pointRadius: 4
         },
         {
-          type: 'bar',
-          label: 'Dead',
-          data: data.filter(d => d.dead > 0).map(d => ({ x: d.date, y: d.dead })),
-          backgroundColor: '#e63946',
-          stack: 'victims'
+        type: 'bar',
+        label: 'Dead',
+        data: data.filter(d => d.dead > 0).map(d => ({ x: d.date, y: d.dead })),
+        backgroundColor: '#e63946',
+        stack: 'victims',
+        barThickness: 8, // <--- Add this to force a minimum width in pixels
         },
         {
-          type: 'bar',
-          label: 'Injured',
-          data: data.filter(d => d.injured > 0).map(d => ({ x: d.date, y: d.injured })),
-          backgroundColor: '#457b9d',
-          stack: 'victims'
+        type: 'bar',
+        label: 'Injured',
+        data: data.filter(d => d.injured > 0).map(d => ({ x: d.date, y: d.injured })),
+        backgroundColor: '#457b9d',
+        stack: 'victims',
+        barThickness: 8, // <--- Add this as well
         }
       ]
     },
